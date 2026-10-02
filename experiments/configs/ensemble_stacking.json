@@ -1,0 +1,6 @@
+{
+  "experiment_id": "ensemble_stacking",
+  "model": "stacking",
+  "params": {},
+  "preprocessing": {}
+}

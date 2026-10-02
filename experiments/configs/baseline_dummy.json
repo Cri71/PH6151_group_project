@@ -1,0 +1,6 @@
+{
+  "experiment_id": "baseline_dummy",
+  "model": "dummy",
+  "params": {},
+  "preprocessing": {}
+}

@@ -1,0 +1,8 @@
+{
+  "experiment_id": "imbalance_logistic_random",
+  "model": "logistic_regression",
+  "params": {},
+  "preprocessing": {
+    "sampler": "random"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "experiment_id": "tree_decision_tree",
+  "model": "decision_tree",
+  "params": {
+    "max_depth": 8
+  },
+  "preprocessing": {}
+}

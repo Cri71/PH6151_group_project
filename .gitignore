@@ -1,0 +1,28 @@
+# Local environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+# Generated runs are local until explicitly accepted with git add -f.
+results/runs/*
+!results/runs/.gitkeep
+*.joblib
+*.pkl
+# Written report and presentation are maintained outside this repository.
+report/
+presentation/
+*.tex
+*.bib
+*.sty
+*.cls
+*.ppt
+*.pptx
+*.potx
+*.aux
+*.log
+*.out
+*.toc

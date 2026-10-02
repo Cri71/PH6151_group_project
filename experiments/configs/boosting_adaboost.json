@@ -1,0 +1,8 @@
+{
+  "experiment_id": "boosting_adaboost",
+  "model": "adaboost",
+  "params": {
+    "n_estimators": 50
+  },
+  "preprocessing": {}
+}

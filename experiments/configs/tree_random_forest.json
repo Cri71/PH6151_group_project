@@ -1,0 +1,8 @@
+{
+  "experiment_id": "tree_random_forest",
+  "model": "random_forest",
+  "params": {
+    "n_estimators": 100
+  },
+  "preprocessing": {}
+}

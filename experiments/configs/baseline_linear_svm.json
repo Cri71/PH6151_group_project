@@ -1,0 +1,6 @@
+{
+  "experiment_id": "baseline_linear_svm",
+  "model": "linear_svm",
+  "params": {},
+  "preprocessing": {}
+}
