@@ -1,0 +1,6 @@
+{
+  "experiment_id": "baseline_logistic_regression",
+  "model": "logistic_regression",
+  "params": {},
+  "preprocessing": {}
+}

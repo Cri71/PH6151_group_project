@@ -1,0 +1,8 @@
+{
+  "experiment_id": "baseline_knn",
+  "model": "knn",
+  "params": {
+    "n_neighbors": 5
+  },
+  "preprocessing": {}
+}

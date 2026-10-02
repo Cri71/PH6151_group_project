@@ -1,0 +1,6 @@
+{
+  "experiment_id": "ensemble_voting",
+  "model": "voting",
+  "params": {},
+  "preprocessing": {}
+}

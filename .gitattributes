@@ -1,0 +1,10 @@
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.csv text eol=lf
+*.ipynb text eol=lf
+# Preserve original dataset/documentation bytes and their recorded checksums.
+data/raw/* -text
+*.png binary
+*.jpg binary

@@ -1,0 +1,8 @@
+{
+  "experiment_id": "imbalance_logistic_weighted",
+  "model": "logistic_regression",
+  "params": {
+    "class_weight": "balanced"
+  },
+  "preprocessing": {}
+}
