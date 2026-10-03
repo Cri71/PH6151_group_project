@@ -14,6 +14,6 @@ fi
 printf 'Running %s configurations sequentially.\n' "${#configs[@]}"
 for config in "${configs[@]}"; do
     printf 'Running %s\n' "$config"
-    "${PYTHON_BIN:-python}" -m experiments.run --config "$config"
+    "${PYTHON_BIN:-python}" -m experiments.run --config "$config" "$@"
 done
-printf 'All configurations completed. Run tools/accept_runs.sh next.\n'
+printf 'All configurations completed. Select accepted runs with the same protocol.\n'

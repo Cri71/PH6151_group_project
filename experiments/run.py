@@ -54,9 +54,10 @@ def source_state():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--protocol", type=Path, default=ROOT / "experiments/protocol.json")
     parser.add_argument("--output", type=Path, default=ROOT / "results/runs")
     args = parser.parse_args()
-    protocol_path = ROOT / "experiments/protocol.json"
+    protocol_path = args.protocol
     protocol = read_json(protocol_path)
     config = read_json(args.config)
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", config["experiment_id"]):

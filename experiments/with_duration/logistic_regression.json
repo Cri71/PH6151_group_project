@@ -1,0 +1,6 @@
+{
+  "experiment_id": "logistic_regression_with_duration",
+  "model": "logistic_regression",
+  "params": {},
+  "preprocessing": {}
+}

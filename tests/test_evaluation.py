@@ -101,3 +101,50 @@ def test_aggregation_and_rejection(tmp_path):
     metrics.to_csv(folder / "fold_metrics.csv", index=False)
     with pytest.raises(ValueError, match="five"):
         aggregate(tmp_path, ["clean"])
+
+
+def test_runner_uses_alternate_duration_protocol(tmp_path, bank_sample, monkeypatch):
+    import sys
+    from experiments import run
+    from src.preprocessing import BankFeatures
+
+    X, y, folds = bank_sample
+    (tmp_path / "data/raw").mkdir(parents=True)
+    (tmp_path / "experiments").mkdir()
+    data_path = tmp_path / "data/raw/bank-full.csv"
+    folds_path = tmp_path / "data/folds.csv"
+    X.assign(y=y.map({0: "no", 1: "yes"})).to_csv(data_path, sep=";", index=False)
+    pd.DataFrame({"row_id": range(len(y)), "fold": folds}).to_csv(folds_path, index=False)
+    protocol = {"seed": 42, "n_splits": 5, "metric": "mcc", "include_duration": False,
+                "data_sha256": sha256(data_path), "folds_sha256": sha256(folds_path)}
+    default_path = tmp_path / "experiments/protocol.json"
+    default_path.write_text(json.dumps(protocol))
+    alternate_path = tmp_path / "duration_protocol.json"
+    alternate_path.write_text(json.dumps({**protocol, "include_duration": True}))
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"experiment_id": "duration_test", "model": "logistic_regression"}))
+    output = tmp_path / "runs"
+    observed = []
+    original = BankFeatures.transform
+
+    def transform(self, frame):
+        transformed = original(self, frame)
+        observed.append("duration" in transformed.columns)
+        return transformed
+
+    monkeypatch.setattr(BankFeatures, "transform", transform)
+    monkeypatch.setattr(run, "ROOT", tmp_path)
+    monkeypatch.setattr(run, "source_state", lambda: ("synthetic-test-commit", False))
+    monkeypatch.setattr(sys, "argv", ["run", "--config", str(config_path),
+                                    "--protocol", str(alternate_path), "--output", str(output)])
+    run.main()
+    folders = list(output.iterdir())
+    assert len(folders) == 1
+    folder = folders[0]
+    assert observed and all(observed)
+    assert json.loads((folder / "protocol.json").read_text())["include_duration"] is True
+    assert json.loads((folder / "metadata.json").read_text())["protocol_sha256"] == sha256(alternate_path)
+    assert json.loads(default_path.read_text())["include_duration"] is False
+    metrics = pd.read_csv(folder / "fold_metrics.csv")
+    assert metrics.fold.tolist() == [1, 2, 3, 4, 5]
+    assert metrics.n_valid.sum() == len(y)

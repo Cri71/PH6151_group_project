@@ -1,4 +1,5 @@
 """Exercise the Bash helpers without retraining the full dataset."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,24 +21,26 @@ def tool_repo(tmp_path):
     for name in ["accept_runs.sh", "run_all_configs.sh"]:
         shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
     shutil.copy2(ROOT / "experiments/aggregate.py", repo / "experiments/aggregate.py")
+    (repo / "experiments/protocol.json").write_text('{"include_duration": false}')
     (repo / "experiments/final_runs.json").write_text('["previous_run"]\n')
     return repo
 
 
-def invoke(repo, name, extra_env=None):
+def invoke(repo, name, extra_env=None, args=()):
     env = {**os.environ, "PYTHON_BIN": Path(sys.executable).as_posix(), **(extra_env or {})}
-    return subprocess.run(["bash", (repo / "tools" / name).as_posix()], cwd=repo.parent,
+    return subprocess.run(["bash", (repo / "tools" / name).as_posix(), *args], cwd=repo.parent,
                           env=env, capture_output=True, text=True)
 
 
-def write_run(repo, experiment, stamp, dirty=False, python_version="test"):
+def write_run(repo, experiment, stamp, dirty=False, python_version="test", protocol_path=None, run_root=None):
     run_id = f"{experiment}__{stamp}__test"
-    folder = repo / "results/runs" / run_id
-    folder.mkdir()
+    folder = (run_root or repo / "results/runs") / run_id
+    folder.mkdir(parents=True)
+    protocol_path = protocol_path or repo / "experiments/protocol.json"
     (folder / "config.json").write_text(json.dumps({"experiment_id": experiment, "model": "dummy"}))
-    (folder / "protocol.json").write_text('{"include_duration": false}')
+    (folder / "protocol.json").write_text(protocol_path.read_text())
     metadata = {"dirty_tree": dirty, "code_commit": "synthetic-test-commit", "seed": 42,
-                "data_sha256": "data", "folds_sha256": "folds", "protocol_sha256": "protocol",
+                "data_sha256": "data", "folds_sha256": "folds", "protocol_sha256": hashlib.sha256(protocol_path.read_bytes()).hexdigest(),
                 "versions": {"test": "1"}, "python_version": python_version}
     (folder / "metadata.json").write_text(json.dumps(metadata))
     (folder / "fold_metrics.csv").write_text(
@@ -80,9 +83,12 @@ def prepare_batch(repo):
     (repo / "experiments/run.py").write_text(
         "import argparse, json, os\nfrom pathlib import Path\n"
         "parser = argparse.ArgumentParser()\nparser.add_argument('--config', required=True)\n"
+        "parser.add_argument('--protocol')\nparser.add_argument('--output')\n"
         "args = parser.parse_args()\n"
         "with Path('calls.jsonl').open('a') as stream:\n"
         "    stream.write(json.dumps(args.config) + '\\n')\n"
+        "with Path('options.jsonl').open('a') as stream:\n"
+        "    stream.write(json.dumps({'protocol': args.protocol, 'output': args.output}) + '\\n')\n"
         "if Path(args.config).name == os.environ.get('FAIL_CONFIG'):\n"
         "    raise SystemExit(2)\n")
 
@@ -106,3 +112,52 @@ def test_batch_stops_at_first_failure(tool_repo):
     calls = [json.loads(line) for line in (tool_repo / "calls.jsonl").read_text().splitlines()]
     assert len(calls) == 2
     assert "All configurations completed" not in result.stdout
+
+
+def test_batch_forwards_protocol_and_output_to_all_configs(tool_repo):
+    prepare_batch(tool_repo)
+    protocol = tool_repo / "alternate protocol.json"
+    protocol.write_text('{"include_duration": true}')
+    output = "results/runs/with duration"
+    result = invoke(tool_repo, "run_all_configs.sh",
+                    args=["--protocol", protocol.as_posix(), "--output", output])
+    assert result.returncode == 0, result.stderr
+    options = [json.loads(line) for line in (tool_repo / "options.jsonl").read_text().splitlines()]
+    assert len(options) == 12
+    assert all(item == {"protocol": protocol.as_posix(), "output": output} for item in options)
+
+
+def test_accept_filters_selected_protocol_before_choosing_latest(tool_repo):
+    alternate = tool_repo / "alternate protocol.json"
+    alternate.write_text('{"include_duration": true}')
+    original = write_run(tool_repo, "sample", "20260101T000000Z")
+    duration = write_run(tool_repo, "sample", "20260201T000000Z", protocol_path=alternate)
+    result = invoke(tool_repo, "accept_runs.sh")
+    assert result.returncode == 0, result.stderr
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == [original]
+    result = invoke(tool_repo, "accept_runs.sh", args=["--protocol", alternate.as_posix()])
+    assert result.returncode == 0, result.stderr
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == [duration]
+
+
+def test_accept_custom_runs_and_manifest_preserves_default(tool_repo):
+    alternate = tool_repo / "alternate protocol.json"
+    alternate.write_text('{"include_duration": true}')
+    run_root = tool_repo / "results/runs/with duration"
+    expected = write_run(tool_repo, "sample", "20260101T000000Z", protocol_path=alternate, run_root=run_root)
+    manifest = tool_repo / "experiments/with duration/final_runs.json"
+    result = invoke(tool_repo, "accept_runs.sh", args=["--protocol", alternate.as_posix(),
+                    "--runs", run_root.as_posix(), "--manifest", manifest.as_posix()])
+    assert result.returncode == 0, result.stderr
+    assert json.loads(manifest.read_text()) == [expected]
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == ["previous_run"]
+
+
+def test_no_matching_protocol_preserves_manifest(tool_repo):
+    write_run(tool_repo, "sample", "20260101T000000Z")
+    alternate = tool_repo / "alternate protocol.json"
+    alternate.write_text('{"include_duration": true}')
+    result = invoke(tool_repo, "accept_runs.sh", args=["--protocol", alternate.as_posix()])
+    assert result.returncode != 0
+    assert "No eligible runs" in result.stderr
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == ["previous_run"]

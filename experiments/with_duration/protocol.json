@@ -1,0 +1,10 @@
+{
+  "seed": 42,
+  "n_splits": 5,
+  "metric": "mcc",
+  "positive_label": 1,
+  "include_duration": true,
+  "tuning": "fixed_parameters_no_outer_fold_tuning",
+  "data_sha256": "ada45d7c04ac65e4bf1a0a27996e73510848c28095dd40df9f5d4c153af67931",
+  "folds_sha256": "fa8b296de52731a39a7a256b27359c6d87a636ba6b2bbfc2ef4f8c291b006555"
+}
