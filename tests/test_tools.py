@@ -1,0 +1,108 @@
+"""Exercise the Bash helpers without retraining the full dataset."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="Bash is required for shell helper tests")
+
+
+@pytest.fixture
+def tool_repo(tmp_path):
+    repo = tmp_path / "group project"
+    for folder in ["tools", "experiments", "results/runs"]:
+        (repo / folder).mkdir(parents=True, exist_ok=True)
+    for name in ["accept_runs.sh", "run_all_configs.sh"]:
+        shutil.copy2(ROOT / "tools" / name, repo / "tools" / name)
+    shutil.copy2(ROOT / "experiments/aggregate.py", repo / "experiments/aggregate.py")
+    (repo / "experiments/final_runs.json").write_text('["previous_run"]\n')
+    return repo
+
+
+def invoke(repo, name, extra_env=None):
+    env = {**os.environ, "PYTHON_BIN": Path(sys.executable).as_posix(), **(extra_env or {})}
+    return subprocess.run(["bash", (repo / "tools" / name).as_posix()], cwd=repo.parent,
+                          env=env, capture_output=True, text=True)
+
+
+def write_run(repo, experiment, stamp, dirty=False, python_version="test"):
+    run_id = f"{experiment}__{stamp}__test"
+    folder = repo / "results/runs" / run_id
+    folder.mkdir()
+    (folder / "config.json").write_text(json.dumps({"experiment_id": experiment, "model": "dummy"}))
+    (folder / "protocol.json").write_text('{"include_duration": false}')
+    metadata = {"dirty_tree": dirty, "code_commit": "synthetic-test-commit", "seed": 42,
+                "data_sha256": "data", "folds_sha256": "folds", "protocol_sha256": "protocol",
+                "versions": {"test": "1"}, "python_version": python_version}
+    (folder / "metadata.json").write_text(json.dumps(metadata))
+    (folder / "fold_metrics.csv").write_text(
+        "fold,mcc,fit_time_seconds\n" + "".join(f"{fold},0.1,1\n" for fold in range(1, 6)))
+    return run_id
+
+
+def test_accept_newest_eligible_run_and_skip_rejected(tool_repo):
+    write_run(tool_repo, "sample", "20260101T000000Z")
+    newest = write_run(tool_repo, "sample", "20260201T000000Z")
+    write_run(tool_repo, "sample", "20260301T000000Z", dirty=True)
+    (tool_repo / "results/runs/sample__20260401T000000Z__test").mkdir()
+    result = invoke(tool_repo, "accept_runs.sh")
+    assert result.returncode == 0, result.stderr
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == [newest]
+    assert "clean working tree" in result.stderr
+    assert "Skipping" in result.stderr
+
+
+def test_no_eligible_runs_preserve_manifest(tool_repo):
+    write_run(tool_repo, "sample", "20260101T000000Z", dirty=True)
+    result = invoke(tool_repo, "accept_runs.sh")
+    assert result.returncode != 0
+    assert "No eligible runs" in result.stderr
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == ["previous_run"]
+
+
+def test_incompatible_runs_preserve_manifest(tool_repo):
+    write_run(tool_repo, "first", "20260101T000000Z")
+    write_run(tool_repo, "second", "20260101T000000Z", python_version="different")
+    result = invoke(tool_repo, "accept_runs.sh")
+    assert result.returncode != 0
+    assert "cannot be compared" in result.stderr
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == ["previous_run"]
+
+
+def prepare_batch(repo):
+    shutil.copytree(ROOT / "experiments/configs", repo / "experiments/configs")
+    # Record the real CLI calls while avoiding expensive model fits in this test.
+    (repo / "experiments/run.py").write_text(
+        "import argparse, json, os\nfrom pathlib import Path\n"
+        "parser = argparse.ArgumentParser()\nparser.add_argument('--config', required=True)\n"
+        "args = parser.parse_args()\n"
+        "with Path('calls.jsonl').open('a') as stream:\n"
+        "    stream.write(json.dumps(args.config) + '\\n')\n"
+        "if Path(args.config).name == os.environ.get('FAIL_CONFIG'):\n"
+        "    raise SystemExit(2)\n")
+
+
+def test_batch_invokes_all_configs_from_other_directory(tool_repo):
+    prepare_batch(tool_repo)
+    result = invoke(tool_repo, "run_all_configs.sh")
+    assert result.returncode == 0, result.stderr
+    calls = [json.loads(line) for line in (tool_repo / "calls.jsonl").read_text().splitlines()]
+    expected = sorted(str(path.relative_to(tool_repo)) for path in (tool_repo / "experiments/configs").glob("*.json"))
+    assert len(expected) == 12
+    assert calls == expected
+    assert json.loads((tool_repo / "experiments/final_runs.json").read_text()) == ["previous_run"]
+
+
+def test_batch_stops_at_first_failure(tool_repo):
+    prepare_batch(tool_repo)
+    filenames = sorted(path.name for path in (tool_repo / "experiments/configs").glob("*.json"))
+    result = invoke(tool_repo, "run_all_configs.sh", {"FAIL_CONFIG": filenames[1]})
+    assert result.returncode == 2
+    calls = [json.loads(line) for line in (tool_repo / "calls.jsonl").read_text().splitlines()]
+    assert len(calls) == 2
+    assert "All configurations completed" not in result.stdout

@@ -35,6 +35,9 @@ PH6151_group_project/
 │   ├── runs/             # Local per-run records; selectively commit accepted records
 │   ├── figures/          # Curated EDA/model figures
 │   └── tables/           # Generated model_comparison.csv and supporting tables
+├── tools/                # Bash helpers for batch runs and accepted-run selection
+│   ├── accept_runs.sh
+│   └── run_all_configs.sh
 ├── tests/                # Leakage, folds, scoring, model and aggregation checks
 ├── CONTRIBUTIONS.md      # Contribution records for coding and non-coding work
 ├── AGENTS.md             # Instructions for coding assistants
@@ -92,6 +95,50 @@ command. Run directories are timestamped, so experiments do not overwrite
 one another. `--output /path/to/runs` can direct local runs elsewhere.
 Random Forest, boosting, KNN and especially stacking may take longer on the
 full dataset. Fit time is recorded for each outer fold.
+
+## Batch execution and accepted-run selection
+
+The two helpers require Bash: use Linux/macOS, WSL, or Git Bash on Windows.
+Activate your analysis environment first. In Git Bash, a Windows virtual
+environment can be activated with `source .venv/Scripts/activate`.
+Both scripts locate the repository root themselves, so they also work when
+invoked by absolute path from another directory.
+
+Run the complete sequence from the repository root:
+
+```bash
+bash tools/run_all_configs.sh
+bash tools/accept_runs.sh
+python -m experiments.aggregate
+```
+
+- `run_all_configs.sh` runs all JSON files in `experiments/configs/` sequentially
+  in filename order (currently 12). Each invokes the existing five-fold runner.
+  It stops at the first failure and leaves completed run outputs available.
+  Rerunning the script starts all configurations again, producing new run folders.
+- `accept_runs.sh` scans `results/runs/`, skips incomplete or rejected runs,
+  and chooses the newest eligible run per experiment ID. It uses the existing
+  aggregator checks, including clean-source metadata, five finite MCC scores,
+  and matching protocol/data/folds/environment across the selected set. If no
+  eligible runs exist or the selected set is incompatible, the existing manifest
+  is left unchanged. It writes only `experiments/final_runs.json`; it does not
+  generate the comparison CSV.
+- `python -m experiments.aggregate` then generates
+  `results/tables/model_comparison.csv` from that manifest.
+
+For final accepted runs, commit pending changes before starting the batch: the
+runner records uncommitted changes as `dirty_tree: true`, and the current
+aggregator rejects those runs. Select runs and generate the table after the
+batch has finished. The selector may use an older eligible run when a newer
+attempt failed the acceptance checks, so review the printed run IDs.
+
+Both helpers default to `python` from your activated environment. To choose
+another executable, set `PYTHON_BIN`, for example:
+
+```bash
+PYTHON_BIN=python3 bash tools/run_all_configs.sh
+PYTHON_BIN=python3 bash tools/accept_runs.sh
+```
 
 ## Shared methodology
 
@@ -167,7 +214,8 @@ source/config changes and rerun from a clean working tree before accepting
 final results. Runs made from uncommitted source are explicitly marked and
 rejected by the final aggregator.
 
-Add the chosen directory names to `experiments/final_runs.json` (a JSON list),
+Use `bash tools/accept_runs.sh` to select eligible runs automatically, or add
+the chosen directory names to `experiments/final_runs.json` manually (a JSON list),
 then run:
 
 ```bash
